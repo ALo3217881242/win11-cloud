@@ -1,0 +1,4 @@
+# Ổ đĩa Windows và cấu hình chứa mật khẩu — không bao giờ commit
+storage/
+.runtime/
+.env

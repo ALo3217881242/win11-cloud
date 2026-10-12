@@ -1,0 +1,51 @@
+# win11-cloud: Windows (tiny11 core 25H2) + Remote Desktop qua trình duyệt (Apache Guacamole)
+# Đừng chạy file này trực tiếp — dùng:  bash start.sh
+name: win11-cloud
+
+services:
+  windows:
+    image: dockurr/windows:latest
+    container_name: windows
+    environment:
+      # Bản tiny11 core 25H2 mới nhất của NTDEV (11/2025, ISO 3,1 GB)
+      VERSION: "${WIN_VERSION:-https://archive.org/download/tiny11_25H2/tiny11core_25H2_Nov25.iso}"
+      USERNAME: "${WIN_USER:-Admin}"
+      PASSWORD: "${WIN_PASSWORD:?Chua co WIN_PASSWORD - hay chay: bash start.sh}"
+      CPU_CORES: "${WIN_CPU:-4}"
+      RAM_SIZE: "${WIN_RAM:-10G}"
+      DISK_SIZE: "${WIN_DISK:-max}"
+      DISK_MINIMUM: "1G"
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "127.0.0.1:8006:8006"          # màn hình cài đặt (VNC trên web)
+      - "127.0.0.1:3389:3389/tcp"      # RDP
+      - "127.0.0.1:3389:3389/udp"
+    volumes:
+      - ./storage:/storage             # ổ đĩa Windows (giữ lại khi stop/start codespace)
+      - ./oem:/oem                     # oem/install.bat: tinh chỉnh cho mượt, chạy 1 lần khi cài
+    restart: unless-stopped
+    stop_grace_period: 2m
+
+  guacd:
+    image: guacamole/guacd:1.6.0
+    container_name: guacd
+    restart: unless-stopped
+
+  guacamole:
+    image: guacamole/guacamole:1.6.0
+    container_name: guacamole
+    depends_on:
+      - guacd
+    environment:
+      GUACD_HOSTNAME: guacd
+      WEBAPP_CONTEXT: ROOT
+      GUACAMOLE_HOME: /guac-template   # chứa user-mapping.xml do start.sh tạo
+    volumes:
+      - ./.runtime/guacamole:/guac-template:ro
+    ports:
+      - "127.0.0.1:8080:8080"          # Remote Desktop trong trình duyệt
+    restart: unless-stopped
