@@ -1,0 +1,49 @@
+{
+  // win11-cloud: Windows 11 tiny11 core 25H2 chạy trong GitHub Codespaces
+  "name": "win11-cloud (tiny11 core 25H2)",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+
+  // Máy 4 nhân, 16 GB RAM, 32 GB ổ đĩa
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "16gb",
+    "storage": "32gb"
+  },
+
+  // GitHub sẽ hiện ô nhập các secret này khi tạo codespace (mật khẩu không nằm trong repo)
+  "secrets": {
+    "WIN_PASSWORD": {
+      "description": "Mật khẩu cho tài khoản Windows 'Admin' (dùng luôn để đăng nhập trang Remote Desktop)."
+    }
+  },
+
+  // Dọn image cache có sẵn trên máy Codespaces để dành chỗ cho Windows
+  "initializeCommand": "docker image prune --all --force || true",
+
+  // Tự động tải + cài + bật Windows mỗi khi codespace khởi động
+  "postStartCommand": "bash start.sh",
+
+  "forwardPorts": [8080, 8006],
+  "portsAttributes": {
+    "8080": {
+      "label": "Remote Desktop (RDP qua trình duyệt)",
+      "onAutoForward": "notify"
+    },
+    "8006": {
+      "label": "Màn hình cài đặt (VNC)",
+      "onAutoForward": "notify"
+    }
+  },
+  "otherPortsAttributes": {
+    "onAutoForward": "ignore"
+  },
+
+  "customizations": {
+    "codespaces": {
+      "openFiles": ["README.md"]
+    }
+  }
+}
