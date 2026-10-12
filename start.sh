@@ -4,6 +4,7 @@
 #   bash start.sh          bật (tự chạy mỗi khi codespace khởi động)
 #   bash start.sh status   xem trạng thái + đường link
 #   bash start.sh logs     xem log cài đặt Windows
+#   bash start.sh test     kiểm tra toàn bộ (KVM, container, cổng, đăng nhập RDP thật)
 #   bash start.sh stop     tắt Windows an toàn
 set -euo pipefail
 shopt -u patsub_replacement 2>/dev/null || true   # bash 5.2: '&' trong thay thế chuỗi là ký tự thường
@@ -117,6 +118,70 @@ show_links() {
   echo
 }
 
+doctor() {
+  set +e
+  local pass=0 fail_n=0 g="http://127.0.0.1:8080"
+  ok()  { printf '  \033[1;32m[OK]\033[0m   %s\n' "$*"; pass=$((pass+1)); }
+  bad() { printf '  \033[1;31m[LỖI]\033[0m %s\n' "$*"; fail_n=$((fail_n+1)); }
+
+  echo "== Máy Codespaces =="
+  [ -e /dev/kvm ] && ok "Có KVM (/dev/kvm) -> ảo hóa phần cứng" || bad "Không có /dev/kvm"
+  ok "CPU: $(nproc) nhân | RAM: $(free -g | awk '/Mem:/{print $2}') GB | Ổ trống: $(df -h --output=avail . | tail -1 | tr -d ' ')"
+
+  echo "== Docker & container =="
+  docker info >/dev/null 2>&1 && ok "Docker đang chạy" || bad "Docker chưa chạy"
+  local c st
+  for c in windows guacd guacamole; do
+    st="$(docker inspect -f '{{.State.Status}}' "$c" 2>/dev/null)"
+    [ "$st" = "running" ] && ok "Container $c: running" || bad "Container $c: ${st:-không có}"
+  done
+
+  echo "== Cổng =="
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8006/)"
+  [ "$code" = "200" ] && ok "Cổng 8006 (màn hình cài đặt): HTTP $code" || bad "Cổng 8006: HTTP $code"
+  code="$(curl -s -o /dev/null -w '%{http_code}' "$g/")"
+  [ "$code" = "200" ] && ok "Cổng 8080 (Guacamole): HTTP $code" || bad "Cổng 8080: HTTP $code"
+  if timeout 3 bash -c '</dev/tcp/127.0.0.1/3389' 2>/dev/null; then
+    ok "Cổng 3389 (RDP của Windows) đang mở"
+  else
+    bad "RDP 3389 chưa mở (Windows còn đang cài/khởi động?)"
+  fi
+
+  echo "== Đăng nhập Guacamole + RDP vào Windows (end-to-end) =="
+  local token hdr uuid ttok stream
+  token="$(curl -s -X POST --data-urlencode "username=$WIN_USER" --data-urlencode "password=$WIN_PASSWORD" \
+           "$g/api/tokens" | sed -n 's/.*"authToken":"\([^"]*\)".*/\1/p')"
+  if [ -z "$token" ]; then
+    bad "Guacamole từ chối đăng nhập user '$WIN_USER'"
+  else
+    ok "Guacamole đăng nhập OK (user '$WIN_USER')"
+    hdr="$(mktemp)"
+    uuid="$(curl -s -D "$hdr" -X POST \
+      --data-urlencode "token=$token" --data-urlencode "GUAC_DATA_SOURCE=default" \
+      --data-urlencode "GUAC_ID=Windows tiny11" --data-urlencode "GUAC_TYPE=c" \
+      --data-urlencode "GUAC_WIDTH=1280" --data-urlencode "GUAC_HEIGHT=720" --data-urlencode "GUAC_DPI=96" \
+      --data-urlencode "GUAC_IMAGE=image/png" --data-urlencode "GUAC_IMAGE=image/jpeg" \
+      "$g/tunnel?connect")"
+    ttok="$(grep -i '^Guacamole-Tunnel-Token:' "$hdr" | awk '{print $2}' | tr -d '\r')"
+    rm -f "$hdr"
+    stream="$(timeout 25 curl -sN -H "Guacamole-Tunnel-Token: $ttok" "$g/tunnel?read:${uuid}:0" 2>/dev/null | head -c 3000000 | tr -d '\0')"
+    local imgs; imgs="$(grep -o '3\.img,' <<<"$stream" | wc -l)"
+    if grep -q '5\.error,' <<<"$stream"; then
+      bad "RDP lỗi: $(grep -o '5\.error,[^;]*' <<<"$stream" | head -1)"
+    elif grep -q '4\.size,' <<<"$stream" && [ "$imgs" -gt 0 ]; then
+      ok "RDP vào Windows thành công, nhận $imgs khung hình màn hình"
+    else
+      bad "RDP chưa trả về hình (Windows còn đang cài/khởi động?)"
+    fi
+  fi
+
+  echo
+  if [ "$fail_n" -eq 0 ]; then say "TẤT CẢ $pass KIỂM TRA ĐỀU OK"; else say "$pass OK, $fail_n LỖI"; fi
+  show_links
+  set -e
+}
+
 cmd="${1:-start}"
 case "$cmd" in
   start)
@@ -143,7 +208,11 @@ case "$cmd" in
     say "Đang tắt Windows an toàn (tối đa 2 phút)..."
     docker compose down
     ;;
+  test|doctor)
+    load_credentials
+    doctor
+    ;;
   *)
-    echo "Dùng: bash start.sh [start|status|logs|stop]"; exit 1
+    echo "Dùng: bash start.sh [start|status|logs|test|stop]"; exit 1
     ;;
 esac

@@ -36,6 +36,7 @@ Mẹo trong Remote Desktop:
 bash start.sh          # bật lại (tự chạy mỗi lần codespace khởi động)
 bash start.sh status   # trạng thái + đường link
 bash start.sh logs     # xem log cài đặt Windows
+bash start.sh test     # kiểm tra toàn bộ: KVM, container, cổng, đăng nhập RDP thật vào Windows
 bash start.sh stop     # tắt Windows an toàn
 ```
 
